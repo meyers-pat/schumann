@@ -1,11 +1,13 @@
 from matplotlib import use
 use('agg')
 from unittest import TestCase
+from gwpy.spectrogram import Spectrogram
 from schumann.classes import CoughlinMagFile, SchumannParamTable
 import numpy.testing as npt
 import numpy as np
 
-FILENAME = 'schumann/tests/736667-736668.mat'
+FILENAME = 'schumann/tests/col/736667-736668.mat'
+FILENAME2 = 'schumann/tests/pol/736667-736668.mat'
 DELTAF = 1. / 128
 SEGDUR = 128
 F0 = 0
@@ -22,6 +24,25 @@ class TestCoughlinMagFile(TestCase):
                                                  testfile.start_time + 7200)
         spec = None
 
+    def test_cross_corr(self):
+        col = CoughlinMagFile(FILENAME)
+        pol = CoughlinMagFile(FILENAME2)
+        xcorr = col.cross_corr(pol)
+        phase = np.angle(xcorr.value)
+        phase = Spectrogram(phase, dt=xcorr.dx, t0=xcorr.x0,
+                            df=xcorr.df, f0=xcorr.f0,
+                            unit='radians')
+        plot = phase.plot(cmap='Spectral_r', vmin=-np.pi, vmax=np.pi)
+        plot.savefig('test_phase_plot')
+        specvar = phase.variance()
+        plot = specvar.plot()
+        ax = plot.gca()
+        ax.set_yscale("linear")
+        ax.set_xscale('linear')
+        ax.set_ylim(-np.pi, np.pi)
+        plot.savefig('specvar_test')
+
+
     def test_file_contents(self):
         # test that the contents of the file
         # are what they should be
@@ -30,6 +51,9 @@ class TestCoughlinMagFile(TestCase):
         npt.assert_equal(testfile.segdur, SEGDUR)
         npt.assert_equal(testfile.f0, F0)
         npt.assert_equal(testfile.start_time, STARTTIME)
+        print testfile.cont_times
+        print testfile.cont_freqs
+        testfile.spectrogram
 
 
 class TestMagSpectrum(TestCase):

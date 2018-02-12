@@ -1,6 +1,7 @@
 from gwpy.timeseries import TimeSeries
 from gwpy.frequencyseries import FrequencySeries
 from gwpy.spectrogram import Spectrogram
+import numpy.testing as npt
 from .coarseGrain import coarseGrain
 from astropy import units
 from astropy.modeling import models, fitting
@@ -17,46 +18,102 @@ __all__ = ['CoughlinMagFile',
            'MagTimeSeries',
            'SchumannParamTable']
 
+class ClassName(object):
+    """docstring for ClassName"""
+        
 
 class CoughlinMagFile(h5File):
     """
     Info from a "coughlin data file"
     """
-    @property
-    def start_time(self):
-        # date string
-        fname = os.path.basename(self.filename).split('.')[0]
-        datestr = int(fname.split('-')[0])
-        # date object
-        mydate = date.fromordinal(datestr - 366)
-        # use astropy to get gps time from datestring
-        return Time(mydate.strftime('%Y-%m-%d')).gps
+    def __init__(self, *args, **kwargs):
+        super(CoughlinMagFile, self).__init__(*args, **kwargs)
+        self.segdur = self['data']['T'].value.squeeze()
+        ts = self['data']['tt'].value.squeeze()
+        # get day in datetime format
+        day = date.fromordinal(int(np.floor(ts[0])) - 366)
+        # get seconds associated with each time
+        secs = [np.round((tdate - np.floor(tdate)) * 86400, 3) for tdate in ts]
+        # convert to gps using astropy
+        self.times = Time(day.strftime('%Y-%m-%d')).gps + np.asarray(secs)
+        self.start_time = self.times[0]
+        self.frequencies = self['data']['ff'].value.squeeze()
+        self.df = self.frequencies[1] - self.frequencies[0]
+        self.f0 = self.frequencies[0]
+        ts = self.times
+        tdifs = ts[1:] - ts[:-1]
+        cont_times = np.max(tdifs) == np.min(tdifs)
+        self.cont_times = cont_times
+        fs = self.frequencies
+        fdifs = fs[1:] - fs[:-1]
+        self.cont_freqs = np.max(fdifs) == np.min(fdifs)
 
-    @property
-    def segdur(self):
-        # segment duration
-        return self['data']['T'].value.squeeze()
+    # @property
+    # def start_time(self):
+    #     # date string
+        # self.times[0]
 
-    @property
-    def frequencies(self):
-        # list of frequencies from file
-        return self['data']['ff'].value.squeeze()
+    # @property
+    # def segdur(self):
+    #     segment duration
+    #     return self['data']['T'].value.squeeze()
 
-    @property
-    def df(self):
-        return self.frequencies[2] - self.frequencies[1]
+    # @property
+    # def times(self):
+    #     ts = self['data']['tt'].value.squeeze()
+    #     # get day in datetime format
+    #     day = date.fromordinal(int(np.floor(ts[0])) - 366)
+    #     # get seconds associated with each time
+    #     secs = [np.round((tdate - np.floor(tdate)) * 86400, 3) for tdate in ts]
+    #     # convert to gps using astropy
+    #     ts = Time(day.strftime('%Y-%m-%d')).gps + np.asarray(secs)
+    #     return ts
 
-    @property
-    def f0(self):
-        return self.frequencies[0]
+    # @property
+    # def frequencies(self):
+    #     # list of frequencies from file
+    #     return self['data']['ff'].value.squeeze()
+
+    # @property
+    # def df(self):
+    #     return self.frequencies[2] - self.frequencies[1]
+
+    # @property
+    # def f0(self):
+    #     return self.frequencies[0]
+
+    # @property
+    # def cont_times(self):
+    #     ts = self.times
+    #     tdifs = ts[1:] - ts[:-1]
+    #     cont_times = np.max(tdifs) == np.min(tdifs)
+    #     return cont_times
+
+    # @property
+    # def cont_freqs(self):
+    #     fs = self.frequencies
+    #     fdifs = fs[1:] - fs[:-1]
+    #     cont_freqs = np.max(fdifs) == np.min(fdifs)
+    #     return cont_freqs
 
     @property
     def spectrogram(self):
+        # check if times are continuous
+        # check if freqs are continuous
+        kwargs = {'name': 'magnetic data', 'channel': None,
+                  'unit': units.nT}
+        if self.cont_times:
+            kwargs['t0'] = self.times[0]
+            kwargs['dt'] = self.times[2] - self.times[1]
+        else:
+            kwargs['times'] = self.times
+        if self.cont_freqs:
+            kwargs['f0'] = self.frequencies[0]
+            kwargs['df'] = self.frequencies[2] - self.frequencies[1]
+        else:
+            kwargs['frequencies'] = self.frequencies
         return Spectrogram(self['data']['spectra'].value.squeeze(),
-                           df=self.df, f0=self.df,
-                           t0=self.start_time, dt=self.segdur,
-                           name='magnetic data',
-                           channel=None) * units.nT
+                           **kwargs)
 
     @property
     def average_spectrum(self):
@@ -64,6 +121,63 @@ class CoughlinMagFile(h5File):
 
     def average_spectrum_cropped(self, st, et):
         return MagSpectrum.from_freqseries(self.spectrogram.crop(st, et).mean(axis=0))
+
+    @property
+    def fft_amp_spectrogram(self):
+        # vals = self['data']['fftamp'].value.squeeze()
+        # intermediate = vals['real'] + 1j * vals['imag']
+        intermediate = self['data']['fftamp'].value.squeeze()['real'] +\
+            1j * self['data']['fftamp'].value.squeeze()['imag']
+        # intermediate = np.zeros((self.times.size, self.frequencies.size))
+
+        # intermediate = np.zeros(vals.flatten().size)
+        kwargs = {'name': 'magnetic data', 'channel': None,
+                  'unit': units.nT}
+        if self.cont_times:
+            kwargs['t0'] = self.times[0]
+            kwargs['dt'] = self.times[2] - self.times[1]
+        else:
+            kwargs['times'] = self.times
+        if self.cont_freqs:
+            kwargs['f0'] = self.frequencies[0]
+            kwargs['df'] = self.frequencies[2] - self.frequencies[1]
+        else:
+            kwargs['frequencies'] = self.frequencies
+        return Spectrogram(intermediate,
+                           **kwargs)
+
+    def cross_corr(self, other):
+        if npt.assert_almost_equal(self.frequencies, other.frequencies):
+            raise ValueError('frequencies must match')
+        newmat = np.zeros((self.spectrogram.shape))
+        this_specgram = self.fft_amp_spectrogram.copy()
+        other_specgram = other.fft_amp_spectrogram.copy()
+        final_times = []
+        if self.cont_times and other.cont_times:
+            et = int(min(this_specgram.times[-1].value, other_specgram.times[-1].value))
+            st = int(max(this_specgram.times[0].value, other_specgram.times[0].value))
+            this_specgram2 = this_specgram.crop(st, et)
+            other_specgram2 = other_specgram.crop(st, et)
+            newmat = this_specgram2.value * other_specgram2.value
+            final_times = this_specgram2.times.value
+        else:
+            for ii, time in enumerate(self.times):
+                # check if time appears in other specgram
+                if np.isin(time, other.times):
+                    # find where it appears
+                    other_idx = np.where(other.times == time)[0]
+                    # do cross-corr
+                    newmat[ii, :] = this_specgram[ii, :].value *\
+                        other_specgram[other_idx, :].value
+                    # add this to final times list
+                    final_times.append(time)
+        # return
+        return Spectrogram(newmat.squeeze(),
+                           dt=(final_times[2] - final_times[1]),
+                           t0=final_times[0], f0=this_specgram.f0,
+                           df=this_specgram.df, unit=this_specgram.unit,
+                           name=this_specgram.name + other_specgram.name,
+                           channel=None)
 
     @property
     def std_spectrum(self):
