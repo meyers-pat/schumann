@@ -1,4 +1,6 @@
 *.egg-info/
+*.png
+*.mat
 build/
 .egg
 *.pyc
