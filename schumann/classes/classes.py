@@ -18,10 +18,6 @@ __all__ = ['CoughlinMagFile',
            'MagTimeSeries',
            'SchumannParamTable']
 
-class ClassName(object):
-    """docstring for ClassName"""
-        
-
 class CoughlinMagFile(h5File):
     """
     Info from a "coughlin data file"
@@ -194,10 +190,7 @@ class MagSpectrum(FrequencySeries):
     """
     @classmethod
     def from_freqseries(cls, f):
-        return cls(f.value, df=f.df,
-                   unit=f.unit, f0=f.f0,
-                   name=f.name, channel=f.channel
-                   )
+        return cls(f)
 
     def fit(self, peaks, q_factors, amplitudes,
             fitter=fitting.LevMarLSQFitter(), **kwargs):
@@ -227,10 +220,27 @@ class MagSpectrum(FrequencySeries):
 
 
 class MagTimeSeries(TimeSeries):
+
     @classmethod
-    def fetch_lemi(cls, ifo, direction, *args, **kwargs):
+    def from_timeseries(cls, ts):
+        return cls(ts)
+
+    def magasd(self, *args, **kwargs):
+        return MagSpectrum.from_freqseries(self.asd(*args, **kwargs))
+
+    def magfft(self, *args, **kwargs):
+        return MagSpectrum.from_freqseries((self.fft(*args, **kwargs)))
+
+    def magpsd(self, *args, **kwargs):
+        return MagSpectrum.from_freqseries((self.psd(*args, **kwargs)))
+
+    def magcsd(self, *args, **kwargs):
+        return MagSpectrum.from_freqseries((self.csd(*args, **kwargs)))
+
+    @classmethod
+    def fetch_lemi(cls, ifo, direction, st, et):
         # check direction
-        if direction.upper() != 'X' or direction.upper() != 'Y':
+        if direction.upper() != 'X' and direction.upper() != 'Y':
             raise ValueError('Direction must be X or Y')
 
         # set channels for LEMIs
@@ -242,14 +252,16 @@ class MagTimeSeries(TimeSeries):
                     % direction.upper())
         else:
             raise ValueError('ifo must be L1 or H1')
-
+        print(cls)
         # fetch, set units, multiply by calibration
-        return cls.fetch(chan, *args, **kwargs).override_unit(units.pT) * 0.305
+        data = TimeSeries.fetch(chan, st, et) * 0.305
+        data.override_unit(units.pT)
+        return cls.from_timeseries(data)
 
     @classmethod
     def find_lemi(cls, ifo, direction, *args, **kwargs):
         # check direction
-        if direction.upper() != 'X' or direction.upper() != 'Y':
+        if direction.upper() != 'X' and direction.upper() != 'Y':
             raise ValueError('Direction must be X or Y')
 
         # set channels for LEMIs

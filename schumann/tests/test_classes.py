@@ -1,8 +1,10 @@
+from __future__ import print_function
 from matplotlib import use
 use('agg')
 from unittest import TestCase
 from gwpy.spectrogram import Spectrogram
-from schumann.classes import CoughlinMagFile, SchumannParamTable
+from schumann.classes import (CoughlinMagFile, SchumannParamTable,
+                              MagTimeSeries, MagSpectrum)
 import numpy.testing as npt
 import numpy as np
 
@@ -12,11 +14,10 @@ DELTAF = 1. / 128
 SEGDUR = 128
 F0 = 0
 STARTTIME = 1164758417
+TESTMTS = MagTimeSeries(np.sin(2 * np.pi * 5 * np.arange(1000) / 100), sample_rate=100, t0=0)
 
 
 class TestCoughlinMagFile(TestCase):
-
-    __all__ = ['test_file_contents', 'clipped_avg_spectrum']
 
     def test_cropped_avg_spectrum(self):
         testfile = CoughlinMagFile(FILENAME)
@@ -51,8 +52,8 @@ class TestCoughlinMagFile(TestCase):
         npt.assert_equal(testfile.segdur, SEGDUR)
         npt.assert_equal(testfile.f0, F0)
         npt.assert_equal(testfile.start_time, STARTTIME)
-        print testfile.cont_times
-        print testfile.cont_freqs
+        print(testfile.cont_times)
+        print(testfile.cont_freqs)
         testfile.spectrogram
 
 
@@ -83,11 +84,29 @@ class TestSchumannTable(TestCase):
         # set initial peak values
         peaks = [7.25, 13.98, 20.0, 26.3]
         # set initial Q values
-        Qs = [6, 5.8, 5.0, 10]
+        qs = [6, 5.8, 5.0, 10]
         # set initial amplitudes
         amps = np.asarray([1, 0.8, 0.25, 0.2]) * spec.max().value
-        myfit, initial = spec.fit(peaks, Qs, amps)
+        myfit, initial = spec.fit(peaks, qs, amps)
         params = SchumannParamTable.from_fit(myfit.parameters,
                                              testfile.start_time)
         params.add_fit(myfit.parameters, testfile.start_time)
-        print type(params['peak0'])
+
+
+class TestMagTimseries(TestCase):
+    def test_fetch_lemi(self):
+        data = MagTimeSeries.fetch_lemi('H1', 'Y', 'August 15 2017', 'August 15 2017 00:00:10')
+        # check that it's the correct type
+        # I had issues before getting fetch
+        # to return an instance of the new class
+        assert(type(data) == MagTimeSeries)
+
+    def test_spectrum_methods(self):
+        asd = TESTMTS.magasd(1)
+        assert(type(asd) == MagSpectrum)
+        fft = TESTMTS.magfft()
+        assert(type(fft) == MagSpectrum)
+        psd = TESTMTS.magpsd()
+        assert(type(psd) == MagSpectrum)
+        csd = TESTMTS.magcsd(TESTMTS)
+        assert(type(csd) == MagSpectrum)
