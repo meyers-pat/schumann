@@ -10,6 +10,7 @@ import numpy as np
 
 FILENAME = 'schumann/tests/col/736667-736668.mat'
 FILENAME2 = 'schumann/tests/pol/736667-736668.mat'
+TSFNAME = 'schumann/tests/col/20170831.mat'
 DELTAF = 1. / 128
 SEGDUR = 128
 F0 = 0
@@ -25,23 +26,23 @@ class TestCoughlinMagFile(TestCase):
                                                  testfile.start_time + 7200)
         spec = None
 
-    def test_cross_corr(self):
-        col = CoughlinMagFile(FILENAME)
-        pol = CoughlinMagFile(FILENAME2)
-        xcorr = col.cross_corr(pol)
-        phase = np.angle(xcorr.value)
-        phase = Spectrogram(phase, dt=xcorr.dx, t0=xcorr.x0,
-                            df=xcorr.df, f0=xcorr.f0,
-                            unit='radians')
-        plot = phase.plot(cmap='Spectral_r', vmin=-np.pi, vmax=np.pi)
-        plot.savefig('test_phase_plot')
-        specvar = phase.variance()
-        plot = specvar.plot()
-        ax = plot.gca()
-        ax.set_yscale("linear")
-        ax.set_xscale('linear')
-        ax.set_ylim(-np.pi, np.pi)
-        plot.savefig('specvar_test')
+    # def test_cross_corr(self):
+    #     col = CoughlinMagFile(FILENAME)
+    #     pol = CoughlinMagFile(FILENAME2)
+    #     xcorr = col.cross_corr(pol)
+    #     phase = np.angle(xcorr.value)
+    #     phase = Spectrogram(phase, dt=xcorr.dx, t0=xcorr.x0,
+    #                         df=xcorr.df, f0=xcorr.f0,
+    #                         unit='radians')
+    #     plot = phase.plot(cmap='Spectral_r', vmin=-np.pi, vmax=np.pi)
+    #     plot.savefig('test_phase_plot')
+    #     specvar = phase.variance()
+    #     plot = specvar.plot()
+    #     ax = plot.gca()
+    #     ax.set_yscale("linear")
+    #     ax.set_xscale('linear')
+    #     ax.set_ylim(-np.pi, np.pi)
+    #     plot.savefig('specvar_test')
 
 
     def test_file_contents(self):
@@ -94,12 +95,12 @@ class TestSchumannTable(TestCase):
 
 
 class TestMagTimseries(TestCase):
-    def test_fetch_lemi(self):
-        data = MagTimeSeries.fetch_lemi('H1', 'Y', 'August 15 2017', 'August 15 2017 00:00:10')
-        # check that it's the correct type
-        # I had issues before getting fetch
-        # to return an instance of the new class
-        assert(type(data) == MagTimeSeries)
+    # def test_fetch_lemi(self):
+    #     data = MagTimeSeries.fetch_lemi('H1', 'Y', 'August 15 2017', 'August 15 2017 00:00:10')
+    #     # check that it's the correct type
+    #     # I had issues before getting fetch
+    #     # to return an instance of the new class
+    #     assert(type(data) == MagTimeSeries)
 
     def test_spectrum_methods(self):
         asd = TESTMTS.magasd(1)
@@ -110,3 +111,7 @@ class TestMagTimseries(TestCase):
         assert(type(psd) == MagSpectrum)
         csd = TESTMTS.magcsd(TESTMTS)
         assert(type(csd) == MagSpectrum)
+
+    def test_from_matfile(self):
+        dat = MagTimeSeries.from_coughlin_matfile(TSFNAME)
+        print(dat)

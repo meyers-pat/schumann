@@ -12,11 +12,14 @@ from astropy.table import QTable
 import os
 import numpy as np
 
+# TODO add docstrings for all methods
+
 __all__ = ['CoughlinMagFile',
            'SchumannPeak',
            'MagSpectrum',
            'MagTimeSeries',
            'SchumannParamTable']
+
 
 class CoughlinMagFile(h5File):
     """
@@ -195,11 +198,12 @@ class MagSpectrum(FrequencySeries):
     def fit(self, peaks, q_factors, amplitudes,
             fitter=fitting.LevMarLSQFitter(), **kwargs):
         # start model
-        First = True
+        first = True
+        schumann_model = None
         for p, q, a in zip(peaks, q_factors, amplitudes):
-            if First:
+            if first:
                 schumann_model = models.Lorentz1D(a, p, q)
-                First = False
+                first = False
             else:
                 schumann_model += models.Lorentz1D(a, p, q)
         # schumann_model += models.Linear1D(-1e-4, 1e-3)
@@ -220,6 +224,20 @@ class MagSpectrum(FrequencySeries):
 
 
 class MagTimeSeries(TimeSeries):
+
+    @classmethod
+    def from_coughlin_matfile(cls, matfile, which='1', calibration=1./16563, sample_rate=128,
+                              unit=units.nT, name=None):
+        from scipy.io import loadmat
+        from gwpy.time import tconvert
+
+        mymat = loadmat(matfile, squeeze_me=True)
+        ts = mymat['tt']
+        day = tconvert(date.fromordinal(int(np.floor(ts[0])) - 366))
+        if which=='1':
+            return cls(mymat['data1']*calibration, sample_rate=sample_rate, t0=day, unit=unit, name=name)
+        if which=='2':
+            return cls(mymat['data2']*calibration, sample_rate=sample_rate, t0=day, unit=unit, name=name)
 
     @classmethod
     def from_timeseries(cls, ts):
