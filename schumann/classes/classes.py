@@ -1,6 +1,7 @@
 from gwpy.timeseries import TimeSeries
 from gwpy.frequencyseries import FrequencySeries
 from gwpy.spectrogram import Spectrogram
+from lalsimulation import SimNoise
 import numpy.testing as npt
 from .coarseGrain import coarseGrain
 from astropy import units
@@ -11,6 +12,7 @@ from astropy.time import Time
 from astropy.table import QTable
 import os
 import numpy as np
+import lal
 
 # TODO add docstrings for all methods
 
@@ -18,7 +20,10 @@ __all__ = ['CoughlinMagFile',
            'SchumannPeak',
            'MagSpectrum',
            'MagTimeSeries',
-           'SchumannParamTable']
+           'SchumannParamTable',
+           'powerlaw_transfer_function',
+           'Params',
+           'ParameterError']
 
 
 class CoughlinMagFile(h5File):
@@ -38,7 +43,7 @@ class CoughlinMagFile(h5File):
         self.start_time = self.times[0]
         self.frequencies = self['data']['ff'].value.squeeze()
         self.df = self.frequencies[1] - self.frequencies[0]
-        self.f0 = self.frequencies[0]
+
         ts = self.times
         tdifs = ts[1:] - ts[:-1]
         cont_times = np.max(tdifs) == np.min(tdifs)
@@ -46,54 +51,6 @@ class CoughlinMagFile(h5File):
         fs = self.frequencies
         fdifs = fs[1:] - fs[:-1]
         self.cont_freqs = np.max(fdifs) == np.min(fdifs)
-
-    # @property
-    # def start_time(self):
-    #     # date string
-        # self.times[0]
-
-    # @property
-    # def segdur(self):
-    #     segment duration
-    #     return self['data']['T'].value.squeeze()
-
-    # @property
-    # def times(self):
-    #     ts = self['data']['tt'].value.squeeze()
-    #     # get day in datetime format
-    #     day = date.fromordinal(int(np.floor(ts[0])) - 366)
-    #     # get seconds associated with each time
-    #     secs = [np.round((tdate - np.floor(tdate)) * 86400, 3) for tdate in ts]
-    #     # convert to gps using astropy
-    #     ts = Time(day.strftime('%Y-%m-%d')).gps + np.asarray(secs)
-    #     return ts
-
-    # @property
-    # def frequencies(self):
-    #     # list of frequencies from file
-    #     return self['data']['ff'].value.squeeze()
-
-    # @property
-    # def df(self):
-    #     return self.frequencies[2] - self.frequencies[1]
-
-    # @property
-    # def f0(self):
-    #     return self.frequencies[0]
-
-    # @property
-    # def cont_times(self):
-    #     ts = self.times
-    #     tdifs = ts[1:] - ts[:-1]
-    #     cont_times = np.max(tdifs) == np.min(tdifs)
-    #     return cont_times
-
-    # @property
-    # def cont_freqs(self):
-    #     fs = self.frequencies
-    #     fdifs = fs[1:] - fs[:-1]
-    #     cont_freqs = np.max(fdifs) == np.min(fdifs)
-    #     return cont_freqs
 
     @property
     def spectrogram(self):
@@ -222,6 +179,110 @@ class MagSpectrum(FrequencySeries):
                 fit(self.frequencies.value))
         return myp
 
+    def do_proper_ifft(self, st, name=None):
+        notches=[(58,62),(19,21),(118,122), (75,77), (0,10)]
+        freqs_to_notch = np.asarray([])
+        df = np.nanmin(np.abs(self.frequencies.value[1:] -
+            self.frequencies.value[:-1]))
+        for notch in notches:
+            freqs_to_notch = np.append(freqs_to_notch, np.arange(notch[0],
+                                                             notch[1],
+                                                             df))
+        idxs = np.in1d(np.round(np.abs(self.frequencies.value), 7),
+                       np.round(freqs_to_notch, 7))
+        fft_arr = self.value.copy()
+        fft_arr[idxs] = 0
+        df = self.frequencies.value[2] - self.frequencies.value[1]
+        srate = 2 * (np.max(self.frequencies.value) + df)
+        ts = np.real(np.fft.ifft(fft_arr))
+        return MagTimeSeries(ts, t0=st, sample_rate=srate, name=name,
+                             channel=name)
+
+    def apply_transfer_function(self, TF):
+        """
+          returns a frequencyseries with 0 freq in
+          first entry, postiive freqs, then negative
+          freqs
+          """
+        vals_abs = np.abs(self.value) * np.abs(TF)
+        phis = np.angle(self.value) + np.angle(TF)
+        vals = vals_abs * np.exp(1j * phis)
+        return MagSpectrum(vals,
+                           frequencies=self.frequencies.value)
+
+    def generate_gaussian_timeseries(self, length, sample_rate,
+                                     seed=None, name=None,
+                                     unit=None):
+        """ Create noise with a given PSD.
+
+        Return noise with a given psd. Note that if unique noise is desired
+        a unique seed should be provided.
+        Parameters
+        ----------
+        length : int
+            The length of noise to generate in seconds.
+        sample_rate : float
+           the sample rate of the data
+        stride : int
+            Length of noise segments in seconds
+        psd : FrequencySeries
+            The noise weighting to color the noise.
+        seed : {0, int}
+            The seed to generate the noise.
+
+        Returns
+        --------
+        noise : TimeSeries
+            A TimeSeries containing gaussian noise colored by the given psd.
+        """
+        if name is None:
+            name = 'noise'
+        length *= sample_rate
+        length = int(length)
+
+        if seed is None:
+            seed = np.random.randint(2 ** 32)
+
+        randomness = lal.gsl_rng("ranlux", seed)
+
+        N = int(sample_rate / self.df.value)
+        n = N / 2 + 1
+        stride = N / 2
+        notches = [(58, 62), (19, 21), (118, 122), (75, 77), (0, 10)]
+        freqs_to_notch = np.asarray([])
+        df = np.nanmin(np.abs(self.frequencies.value[1:] -
+                              self.frequencies.value[:-1]))
+        for notch in notches:
+            freqs_to_notch = np.append(freqs_to_notch, np.arange(notch[0],
+                                                                 notch[1],
+                                                                 df))
+        idxs = np.in1d(np.round(np.abs(self.frequencies.value), 7),
+                       np.round(freqs_to_notch, 7))
+        psd_vals = self.value.copy()
+        psd_vals[idxs] = 0
+        psd = MagSpectrum(psd_vals, x0=self.x0,
+                              dx=self.dx)
+
+        if n > len(psd):
+            raise ValueError("PSD not compatible with requested delta_t")
+        psd = (psd[0:n]).to_lal()
+        psd.data.data[n - 1] = 0
+        segment = MagTimeSeries(np.zeros(N), sample_rate=sample_rate).to_lal()
+        length_generated = 0
+        newdat = []
+
+        SimNoise(segment, 0, psd, randomness)
+        while (length_generated < length):
+            if (length_generated + stride) < length:
+                newdat.extend(segment.data.data[:stride])
+            else:
+                newdat.extend(segment.data.data[0:length - length_generated])
+
+            length_generated += stride
+            SimNoise(segment, stride, psd, randomness)
+        return MagTimeSeries(newdat, sample_rate=sample_rate, name=name, unit=unit,
+                             channel=name)
+
 
 class MagTimeSeries(TimeSeries):
 
@@ -234,10 +295,12 @@ class MagTimeSeries(TimeSeries):
         mymat = loadmat(matfile, squeeze_me=True)
         ts = mymat['tt']
         day = tconvert(date.fromordinal(int(np.floor(ts[0])) - 366))
-        if which=='1':
-            return cls(mymat['data1']*calibration, sample_rate=sample_rate, t0=day, unit=unit, name=name)
-        if which=='2':
-            return cls(mymat['data2']*calibration, sample_rate=sample_rate, t0=day, unit=unit, name=name)
+        if which == '1':
+            return cls(mymat['data1']*calibration, sample_rate=sample_rate, t0=day, unit=unit, name=name,
+                       channel=name)
+        if which == '2':
+            return cls(mymat['data2']*calibration, sample_rate=sample_rate, t0=day, unit=unit, name=name,
+                       channel=name)
 
     @classmethod
     def from_timeseries(cls, ts):
@@ -270,7 +333,6 @@ class MagTimeSeries(TimeSeries):
                     % direction.upper())
         else:
             raise ValueError('ifo must be L1 or H1')
-        print(cls)
         # fetch, set units, multiply by calibration
         data = TimeSeries.fetch(chan, st, et) * 0.305
         data.override_unit(units.pT)
@@ -298,20 +360,17 @@ class MagTimeSeries(TimeSeries):
         # fetch, set units, multiply by calibration.
         return cls.find(chan, *args, **kwargs).override_unit(units.pT) * 0.305
 
+    def do_unnormalized_fft(self):
 
-def fit_params_to_dict(fit_params, st):
-    from collections import OrderedDict
-    peakstr = 'peak%d'
-    ampstr = 'amp%d'
-    qstr = 'Q%d'
-    npeaks = int(np.size(fit_params) / 3)
-    newdict = OrderedDict()
-    for ii in range(npeaks):
-        newdict[peakstr % ii] = fit_params[ii * 3 + 1]
-        newdict[ampstr % ii] = fit_params[ii * 3 + 0]
-        newdict[qstr % ii] = fit_params[ii * 3 + 2]
-    newdict['starttime'] = st
-    return newdict
+        """
+        unnormalized fft
+        """
+        dat = np.fft.fft(self.value)
+        freqs = np.fft.fftfreq(self.value.size, d=1./
+                               self.sample_rate.value)
+        freqseries = MagSpectrum(dat, frequencies=freqs,
+                                 name='unnormalized fft')
+        return freqseries
 
 
 class SchumannParamTable(QTable):
@@ -332,3 +391,80 @@ class SchumannParamTable(QTable):
 
     def add_fit(self, fit_params, st):
         self.add_row(fit_params_to_dict(fit_params, st))
+
+
+def powerlaw_transfer_function(kappa, beta, f, phase=0, fref=10, fcutoff=5):
+    """
+    Parameters
+    ----------
+    kappa : `float`
+        powerlaw amplitude
+    beta : `float`
+        negative of powerlaw spectral index
+    f : `numpy.ndarray`
+        frequency array
+    phase : `float`
+        phase of transfer function
+    fref : `float`
+        reference frequency for power law
+    fcutoff : `float`
+        cutoff frequency below (in abs value space) which
+        transfer function is fixed to zero.
+
+    Returns
+    -------
+    tf : `numpy.ndarray`
+        transfer function
+
+    """
+    df = f[1] - f[0]
+    tf = kappa * (np.abs(f) / float(fref))**(-beta) * np.exp(1j*phase)
+    tf[0] = 0
+    tf[:int(fcutoff/df)] = 0
+    tf[int(-fcutoff/df):] = 0
+    return tf
+
+
+def fit_params_to_dict(fit_params, st):
+    from collections import OrderedDict
+    peakstr = 'peak%d'
+    ampstr = 'amp%d'
+    qstr = 'Q%d'
+    npeaks = int(np.size(fit_params) / 3)
+    newdict = OrderedDict()
+    for ii in range(npeaks):
+        newdict[peakstr % ii] = fit_params[ii * 3 + 1]
+        newdict[ampstr % ii] = fit_params[ii * 3 + 0]
+        newdict[qstr % ii] = fit_params[ii * 3 + 2]
+    newdict['starttime'] = st
+    return newdict
+
+
+class Params(object):
+    """
+    Info from a "coughlin data file"
+    """
+    @classmethod
+    def from_config(cls, config_file):
+        import configparser
+        params = cls()
+        config = configparser.ConfigParser()
+        # read in config to dicts for params
+        config.read(config_file)
+        params.ifo1 = {}
+        params.ifo2 = {}
+        params.general = {}
+        params.stochastic = {}
+        for option in config.options('ifo1'):
+            params.ifo1[option] = config.get('ifo1', option)
+        for option in config.options('ifo2'):
+            params.ifo2[option] = config.get('ifo2', option)
+        for option in config.options('general'):
+            params.general[option] = config.get('general', option)
+        for option in config.options('stochastic'):
+            params.stochastic[option] = config.get('stochastic', option)
+        return params
+
+class ParameterError(Exception):
+    """container class for parameter exceptions"""
+    pass
