@@ -2,16 +2,17 @@ import matplotlib
 matplotlib.use("agg")
 from schumann.classes import (MagTimeSeries, MagSpectrum, Params,
                               powerlaw_transfer_function)
-
+import schumann
 from schumann.classes.coarseGrain import coarseGrain
-from gwpy.timeseries import TimeSeriesDict, TimeSeries
+from gwpy.timeseries import TimeSeries
 from gwpy.frequencyseries import FrequencySeries
 from gwpy.spectrogram import Spectrogram
 import optparse
 import schumann.utils as schutils
 import numpy as np
+from schumann.stochtemplate import ST
+import os
 
-from datetime import date
 
 def parse_command_line():
     parser = optparse.OptionParser()
@@ -138,7 +139,7 @@ def get_magnetic_noise_matfiles(ifoparams, generalparams):
     fd1_plot.savefig('test_plot')
 
 def generate_magnetometer_csd(ifoparams1, ifoparams2, generalparams, stochparams):
-    from datetime import datetime, timedelta
+    from datetime import datetime
     from astropy.time import Time
     # get start time and duration from our paramfile
     st = Time(datetime.strptime(generalparams['mag_day_start'], '%Y%m%d')).gps
@@ -210,18 +211,102 @@ def generate_magnetometer_csd(ifoparams1, ifoparams2, generalparams, stochparams
     # ax.set_title('$M(f)$ for this search')
     # plot.savefig('test_csd_spectrogram')
 
+def make_job_file(generalparams, stochparams):
+    from datetime import datetime
+    from astropy.time import Time
+    # get start time and duration from our paramfile
+    st = Time(datetime.strptime(generalparams['mag_day_start'], '%Y%m%d')).gps
+    dur = int(float(generalparams['ndays']) * 86400)
+    jobdur = int(generalparams['job_duration'])
+    jobfile = generalparams['output_prefix'] + '/stochastic_files/jobs.txt'
+    et = st + dur
+    # open job file
+    myfile = open(jobfile,'w')
+    ii = 0
+    while st < et:
+        ii +=1
+        # write line...remember newline
+        myfile.write("%d %d %d %d\n" % (1, st, st+jobdur, jobdur))
+        # increment
+        st += jobdur
+    myfile.close()
+
+
+def make_cache_files(ifoparams, generalparams, stochparams):
+    from datetime import datetime
+    from astropy.time import Time
+
+    # get ifoletter
+    ifoletter = ifoparams['name'][0]
+
+    # get start time and duration from our paramfile
+    st = Time(datetime.strptime(generalparams['mag_day_start'], '%Y%m%d')).gps
+    dur = int(float(generalparams['ndays']) * 86400)
+    jobdur = int(generalparams['job_duration'])
+    njobs = int(float(dur) / jobdur)
+    frameFileName = generalparams['output_prefix'] + '/stochastic_files/cache/frameFiles%s.%d.txt'
+    gpsFileName = generalparams['output_prefix'] + '/stochastic_files/cache/gpsTimes%s.%d.txt'
+    for job in range(njobs):
+        # write line...remember newline
+        frameFile = open(frameFileName % (ifoletter, job+1), 'w')
+        combined_fname = generalparams['output_prefix'] + '/contaminated_frames/%sFAKE-CONTAMINATED-%d-%d.gwf'
+        frameFile.write(str(combined_fname % (ifoparams['name'], st, dur)) + '\n')
+        frameFile.close()
+
+        gpsFile = open(gpsFileName % (ifoletter, job+1), 'w')
+        gpsFile.write('%d\n' % int(st))
+        gpsFile.close()
+
+def make_stochastic_paramfile(stochparams, generalparams):
+    newst = ST.format(**stochparams)
+    myparamfile = open(generalparams['output_prefix'] + '/stochastic_files/params.txt', 'w')
+    myparamfile.write(newst)
+    myparamfile.close()
+
+def make_stochastic_executable(stochparams, generalparams, njobstopproc, run_stoch):
+    matlab_cmd = """matlab -nodesktop -nodisplay -r "addpath(genpath('{6}'));stoch_loop('{0}','{1}','{2}','{3}','{4}','{5}');exit;"
+    """
+    input_file_directory = generalparams['output_prefix'] + '/stochastic_files/'
+    paramfile = input_file_directory + '/params.txt'
+    jobfile = input_file_directory + '/jobs.txt'
+    jobs = np.loadtxt(jobfile)
+    njobs = jobs.shape[0]
+    outdir = generalparams['output_prefix'] + '/stochastic_output/'
+    # add path to our matlab directory when running so we get stochastic_ppsf
+    return matlab_cmd.format(paramfile, jobfile, njobs,outdir, njobstopproc,
+            run_stoch, schumann.__path__[0] + '/matlab/')
+
+
 if __name__ == "__main__":
     cli_args = parse_command_line()
     params = get_params(cli_args.param_file)
     schutils.setup_sim_directory(params.general['output_prefix'])
 
     # general gaussian noise for both detectors
-    generate_gauss_ifo_data(params.ifo1, params.general)
-    generate_gauss_ifo_data(params.ifo2, params.general)
+    # generate_gauss_ifo_data(params.ifo1, params.general)
+    # generate_gauss_ifo_data(params.ifo2, params.general)
 
     # create correlated magnetic data for both detectors
-    get_magnetic_noise_matfiles(params.ifo1, params.general)
-    get_magnetic_noise_matfiles(params.ifo2, params.general)
+    # get_magnetic_noise_matfiles(params.ifo1, params.general)
+    # get_magnetic_noise_matfiles(params.ifo2, params.general)
 
     # generate complex csd between two magnetometers
-    generate_magnetometer_csd(params.ifo1, params.ifo2, params.general, params.stochastic)
+    # generate_magnetometer_csd(params.ifo1, params.ifo2, params.general, params.stochastic)
+
+    # make job file
+    make_job_file(params.general, params.stochastic)
+
+    # make cache file
+    make_cache_files(params.ifo1, params.general, params.stochastic)
+    make_cache_files(params.ifo2, params.general, params.stochastic)
+    # stochparams
+    stochparams = schutils.setup_stochastic_params(params.stochastic,
+                                                   params.ifo1,
+                                                   params.ifo2,
+                                                   params.general)
+    # create stochastic paramfile
+    make_stochastic_paramfile(stochparams, params.general)
+    cmd = make_stochastic_executable(stochparams, params.general, 2, 'true')
+    print(cmd)
+    os.system(cmd)
+

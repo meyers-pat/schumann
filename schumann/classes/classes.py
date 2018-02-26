@@ -468,3 +468,43 @@ class Params(object):
 class ParameterError(Exception):
     """container class for parameter exceptions"""
     pass
+
+class StochasticJobResults(object):
+    """single stochastic job results"""
+    def __init__(self, matfile):
+        super(StochasticJobResults, self).__init__()
+        """
+        mat file behaves differently if there's only one segment.
+        need to be careful when opening it here.
+        """
+        print 'Opening %s' % matfile
+        f = h5py.File(matfile, 'r')
+        segstarts = f['segmentStartTime'][0]
+        sensInt_ref = f['sensInt/data']
+        ccspec_ref = f['ccSpec/data']
+        # nsegs
+        dim1 = sensInt_ref.size
+        segdur = f['params']['segmentDuration'].value.squeeze()
+        # nfreqs
+        fhigh = f['params']['fhigh'].value.squeeze()
+        flow = f['params']['flow'].value.squeeze()
+        df = f['params']['deltaF'].value.squeeze()
+        freqs = np.arange(flow, fhigh+df, df)
+        dim2 = freqs.squeeze().size
+        if dim1==freqs.size:
+            sensInt_segs = sensInt_ref.value.squeeze()
+            sensInt_segs = np.reshape(sensInt_segs, (1,sensInt_segs.size))
+            ccspec_segs = ccspec_ref.value.squeeze()
+            ccspec_segs = np.reshape(ccspec_segs, (1,ccspec_segs.size))
+        else:
+            sensInt_segs = np.zeros((dim1,dim2))
+            ccspec_segs = np.zeros((dim1,dim2))
+            for ii in range(dim1):
+                sensInt_segs[ii,:] = f[sensInt_ref[0][ii]][0]
+                ccspec_segs[ii,:] = f[ccspec_ref[0][ii]][0]
+        # now put it all into your object
+        self.sensInt_segs = sensInt_segs
+        self.ccspec_segs = ccspec_segs
+        self.segstarts = segstarts
+        self.freqs = freqs
+        self.segdur = segdur

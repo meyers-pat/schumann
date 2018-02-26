@@ -1,0 +1,110 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% example parameter file
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% stochastic output files
+writeNaiveSigmasToFiles true
+writeSpectraToFiles true
+writeStatsToFiles true
+writeSensIntsToFiles true
+writeResultsToScreen false
+writeCoherenceToFiles false
+writeCalPSD1sToFiles false
+writeCalPSD2sToFiles false
+
+% high-pass parameters
+doHighPass1 true
+doHighPass2 true
+highPassFreq1 8
+highPassFreq2 8
+highPassOrder1 6
+highPassOrder2 6
+
+% overalpping segments
+doOverlap true
+
+% do not use folded data
+doSidereal false
+
+% do not analyze less than 200s of data
+minDataLoadLength {mindataload}
+
+% do not exclude any additional times
+doBadGPSTimes false
+
+% perform a time shift
+doShift1 false
+doShift2 false
+ShiftTime1 0
+ShiftTime2 0
+
+% use Hanford-Livingston pair
+ifo1 {ifo1}
+ifo2 {ifo2}
+
+% define properties of STAMP pixels
+segmentDuration {segdur}
+numSegmentsPerInterval 3
+ignoreMidSegment true
+
+% duration of Hann window
+hannDuration1 {segdur}
+hannDuration2 {segdur}
+
+% define frequency range and resolution
+flow {flow}
+fhigh {fhigh}
+deltaF {deltaf}
+
+% define standard stochastic parameters
+alphaExp 0
+fRef 10
+heterodyned false
+resampleRate1 {sample_rate}
+resampleRate2 {sample_rate}
+bufferSecs1 2
+bufferSecs2 2
+nResample1 10
+nResample2 10
+betaParam1 5
+betaParam2 5
+
+% strain channel names
+ASQchannel1 FAKE-CONTAMINATED
+ASQchannel2 FAKE-CONTAMINATED
+
+% frame types
+frameType1 H1_HOFT_C02
+frameType2 L1_HOFT_C02
+
+% use default calibration
+alphaBetaFile1 none
+alphaBetaFile2 none
+calCavGainFile1 none
+calCavGainFile2 none
+calResponseFile1 none
+calResponseFile2 none
+
+% never mask frequency bins at the pre-processing stage
+doFreqMask true
+freqsToRemove {freqstoremove}
+nBinsToRemove {nbinstoremove}
+
+% paths to cachefiles
+gpsTimesPath1 {cachepath}
+gpsTimesPath2 {cachepath}
+frameCachePath1 {cachepath}
+frameCachePath2 {cachepath}
+
+% do not use Monte Carlo
+doDetectorNoiseSim false
+
+% simulate detector noise
+doSimulatedDetectorNoise false
+% simulate isotropic signal
+doMonteCarlo false
+powerIndex 0
+
+writeOutputToMatFile true
+
+% output file location
+outputFilePrefix {output_prefix_full}
